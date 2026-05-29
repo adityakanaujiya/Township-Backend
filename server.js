@@ -7,6 +7,7 @@ import authRoutes from "./routes/authRoutes.js";
 import employeeRoutes from "./routes/employeeRoutes.js";
 import electricityRoutes from "./routes/electricityRoutes.js";
 import deductionRoutes from "./routes/deductionRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -20,6 +21,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/electricity", electricityRoutes);
 app.use("/api/deductions", deductionRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 app.get("/", (req, res) => {
   res.send("API Running");

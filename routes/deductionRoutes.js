@@ -2,25 +2,19 @@ import express from "express";
 import {
   generateDeduction,
   getDeductions,
+  getMyDeductions,
 } from "../controllers/deductionController.js";
 import { protect, authorizeRoles } from "../middleware/auth.js";
-import Deduction from "../models/Deduction.js";
 
 const router = express.Router();
 
-// Generate monthly deduction
-router.post("/generate", protect, generateDeduction);
+// Generate monthly deduction (Admin only)
+router.post("/generate", protect, authorizeRoles("admin"), generateDeduction);
 
-// Get all deductions
-router.get("/", protect, getDeductions);
+// Get all deductions (Admin + Supervisor)
+router.get("/", protect, authorizeRoles("admin", "supervisor"), getDeductions);
 
-// Get deduction history for the logged-in user
-router.get("/my-history", protect, authorizeRoles("user"), async (req, res) => {
-  const history = await Deduction.find({
-    employeeId: req.user.id,
-  });
-
-  res.json(history);
-});
+// Get logged-in user's deductions (User only)
+router.get("/my", protect, authorizeRoles("user"), getMyDeductions);
 
 export default router;

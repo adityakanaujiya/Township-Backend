@@ -3,6 +3,7 @@ import {
   createEmployee,
   getEmployees,
   getEmployeeById,
+  getMyEmployee,
   updateEmployee,
   searchEmployees,
   deleteEmployee,
@@ -13,7 +14,11 @@ import { protect, authorizeRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// 🔍 Search (Admin + Supervisor)
+/* ================================
+   IMPORTANT: Order Matters Here
+   ================================ */
+
+// 🔍 Search Employees (Admin + Supervisor)
 router.get(
   "/search",
   protect,
@@ -21,23 +26,27 @@ router.get(
   searchEmployees,
 );
 
-// 👁 View All Employees (Admin + Supervisor)
+// 👤 Get Logged-in User's Employee Profile (User only)
+router.get("/me", protect, authorizeRoles("user"), getMyEmployee);
+
+// 👥 Get All Employees (Admin + Supervisor)
 router.get("/", protect, authorizeRoles("admin", "supervisor"), getEmployees);
 
-// 👁 View Single Employee (Admin + Supervisor)
+// 👁 Get Single Employee by ID (Admin + Supervisor)
 router.get(
   "/:id",
   protect,
-  authorizeRoles("admin", "supervisor", "user"),
+  authorizeRoles("admin", "supervisor"),
   getEmployeeById,
 );
+
 // ➕ Create Employee (Admin only)
 router.post("/", protect, authorizeRoles("admin"), createEmployee);
 
 // ✏ Update Employee (Admin only)
 router.put("/:id", protect, authorizeRoles("admin"), updateEmployee);
 
-// 🗑️ Delete Employee (Admin only)
+// ❌ Delete Employee (Admin only)
 router.delete("/:id", protect, authorizeRoles("admin"), deleteEmployee);
 
 // 🔄 Toggle Active Status (Admin only)
@@ -47,4 +56,5 @@ router.patch(
   authorizeRoles("admin"),
   toggleActiveStatus,
 );
+
 export default router;

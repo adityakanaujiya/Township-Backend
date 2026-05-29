@@ -2,73 +2,114 @@ import Electricity from "../models/Electricity.js";
 import Employee from "../models/Employee.js";
 import { designationConfig } from "../utils/designationConfig.js";
 
+const UNIT_RATE = 4.5;
+const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
+
+const getEmployeeConfig = (employee) => {
+  let config = designationConfig[employee.designation];
+
+  if (!config) {
+    const specialKey = `${employee.designation}_${employee.accommodationType}`;
+    config = designationConfig[specialKey];
+  }
+
+  return config;
+};
+
+const enrichRecord = (record) => {
+  const employee = record.employeeId;
+  const config = employee ? getEmployeeConfig(employee) : null;
+  const freeUnits = config?.freeUnits ?? 0;
+  const chargeableUnits = Math.max((record.totalUnits || 0) - freeUnits, 0);
+
+  return {
+    ...record.toObject(),
+    rsCode: employee?.rsCode || "",
+    employeeName: employee?.name || "",
+    designation: employee?.designation || "",
+    accommodationType: employee?.accommodationType || "",
+    freeUnits,
+    chargeableUnits,
+    ratePerUnit: UNIT_RATE,
+  };
+};
+
 export const addElectricity = async (req, res) => {
   try {
-    const { employeeId, month, previousReading, currentReading } = req.body;
+    const rsCode =
+      req.body.rsCode ||
+      req.body.rsid ||
+      req.body.rsId ||
+      req.body.employeeId ||
+      req.body.name ||
+      req.body.employeeName ||
+      "";
+    const month = (req.body.month || getCurrentMonth()).trim();
+    const unitsUsed =
+      req.body.unitsUsed ?? req.body.units ?? req.body.uits ?? req.body.unitUsed;
 
-    // 🔹 Basic validation
-    if (
-      !employeeId ||
-      !month ||
-      previousReading == null ||
-      currentReading == null
-    ) {
-      return res.status(400).json({ message: "All fields are required" });
+    if (!String(rsCode).trim() || unitsUsed == null || unitsUsed === "") {
+      return res
+        .status(400)
+        .json({ message: "RS Code or name and units used are required" });
     }
 
-    const employee = await Employee.findById(employeeId);
+    const lookupValue = String(rsCode).trim();
+    const normalizedRsCode = lookupValue.toUpperCase();
+    const normalizedUnits = Number(unitsUsed);
+
+    if (Number.isNaN(normalizedUnits) || normalizedUnits < 0) {
+      return res
+        .status(400)
+        .json({ message: "Units used must be a valid positive number" });
+    }
+
+    const employee =
+      (await Employee.findOne({ rsCode: normalizedRsCode })) ||
+      (await Employee.findOne({
+        name: { $regex: `^${lookupValue}$`, $options: "i" },
+      }));
 
     if (!employee) {
-      return res.status(404).json({ message: "Employee not found" });
+      return res
+        .status(404)
+        .json({ message: "Employee not found for this RS Code or name" });
     }
 
-    // 🔹 Determine correct config key
-    let config;
+    const existingRecord = await Electricity.findOne({
+      employeeId: employee._id,
+      month,
+    });
 
-    // First try direct designation match
-    config = designationConfig[employee.designation];
-
-    // If not found, try special key with accommodation
-    if (!config) {
-      const specialKey =
-        employee.designation + "_" + employee.accommodationType;
-
-      config = designationConfig[specialKey];
-    }
-
-    // If still not found → stop
-    if (!config) {
+    if (existingRecord) {
       return res.status(400).json({
-        message: `No configuration found for designation: ${employee.designation}`,
+        message: "Electricity already calculated for this RS Code and month",
       });
     }
 
-    // 🔹 Calculate units safely
-    const totalUnits = currentReading - previousReading;
+    const config = getEmployeeConfig(employee);
 
-    if (totalUnits < 0) {
+    if (!config) {
       return res.status(400).json({
-        message: "Current reading cannot be less than previous reading",
+        message: "No electricity configuration found for this employee designation",
       });
     }
 
-    let electricityAmount = 0;
-
-    if (totalUnits > config.freeUnits) {
-      const extraUnits = totalUnits - config.freeUnits;
-      electricityAmount = extraUnits * 4.5;
-    }
+    const chargeableUnits = Math.max(normalizedUnits - config.freeUnits, 0);
+    const electricityAmount = chargeableUnits * UNIT_RATE;
 
     const record = await Electricity.create({
-      employeeId,
+      employeeId: employee._id,
       month,
-      previousReading,
-      currentReading,
-      totalUnits,
+      previousReading: 0,
+      currentReading: normalizedUnits,
+      totalUnits: normalizedUnits,
       electricityAmount,
     });
 
-    res.status(201).json(record);
+    const populatedRecord = await Electricity.findById(record._id).populate("employeeId");
+
+    res.status(201).json(enrichRecord(populatedRecord));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -76,8 +117,31 @@ export const addElectricity = async (req, res) => {
 
 export const getElectricity = async (req, res) => {
   try {
-    const data = await Electricity.find().populate("employeeId");
-    res.json(data);
+    const data = await Electricity.find()
+      .populate("employeeId")
+      .sort({ createdAt: -1 });
+
+    res.json(data.map(enrichRecord));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getMyElectricity = async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ userId: req.user.id });
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    const data = await Electricity.find({
+      employeeId: employee._id,
+    })
+      .populate("employeeId")
+      .sort({ createdAt: -1 });
+
+    res.json(data.map(enrichRecord));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
